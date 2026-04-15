@@ -1,0 +1,12 @@
+{
+  "name": "bellotas",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "docker compose up --build",
+    "down": "docker compose down -v",
+    "api:prisma:generate": "pnpm --filter @bellotas/api prisma:generate",
+    "api:prisma:migrate": "pnpm --filter @bellotas/api prisma:migrate",
+    "seed": "pnpm --filter @bellotas/api seed"
+  }
+}

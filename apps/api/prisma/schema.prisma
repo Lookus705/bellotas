@@ -1,0 +1,357 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum UserRole {
+  chofer
+  almacenista
+  supervisor
+  manager
+  rrhh
+  admin
+}
+
+enum ConversationStatus {
+  ACTIVE
+  CLOSED
+}
+
+enum Direction {
+  inbound
+  outbound
+}
+
+enum MessageType {
+  text
+  audio
+  document
+  system
+}
+
+enum RouteStatus {
+  started
+  closed
+}
+
+enum Severity {
+  low
+  medium
+  high
+  critical
+}
+
+enum IncidentStatus {
+  open
+  closed
+}
+
+enum FileKind {
+  audio
+  payroll_pdf
+  evidence
+}
+
+enum NotificationChannel {
+  telegram
+  email
+}
+
+model Tenant {
+  id             String             @id @default(cuid())
+  name           String
+  slug           String             @unique
+  status         String             @default("active")
+  timezone       String             @default("America/Santo_Domingo")
+  createdAt      DateTime           @default(now())
+  users          User[]
+  sessions       ConversationSession[]
+  routes         DriverRoute[]
+  pickings       WarehousePicking[]
+  loadings       TruckLoading[]
+  incidents      Incident[]
+  payrolls       PayrollDocument[]
+  files          StoredFile[]
+  alertTargets   TenantAlertTarget[]
+  auditLogs      AuditLog[]
+}
+
+model User {
+  id              String               @id @default(cuid())
+  tenantId        String
+  employeeCode    String
+  pinHash         String
+  fullName        String
+  email           String?
+  phone           String?
+  status          UserStatus           @default(ACTIVE)
+  createdAt       DateTime             @default(now())
+  tenant          Tenant               @relation(fields: [tenantId], references: [id])
+  roles           UserRoleAssignment[]
+  telegramLinks   TelegramLink[]
+  webSessions     WebSession[]
+  conversationSessions ConversationSession[]
+  conversationMessages ConversationMessage[]
+  driverRoutes    DriverRoute[]
+  warehousePickings WarehousePicking[]
+  truckLoadings   TruckLoading[]
+  incidents       Incident[]
+  payrolls        PayrollDocument[]    @relation("PayrollEmployee")
+  uploadedPayrolls PayrollDocument[]   @relation("PayrollUploader")
+  files           StoredFile[]
+  auditLogs       AuditLog[]
+
+  @@unique([tenantId, employeeCode])
+  @@index([tenantId, createdAt])
+}
+
+model UserRoleAssignment {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      UserRole
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, role])
+}
+
+model TelegramLink {
+  id             String    @id @default(cuid())
+  tenantId       String
+  userId         String
+  telegramUserId String
+  telegramChatId String
+  linkedAt       DateTime  @default(now())
+  revokedAt      DateTime?
+  lastSeenAt     DateTime?
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+  @@unique([tenantId, telegramUserId])
+}
+
+model WebSession {
+  id        String   @id @default(cuid())
+  tenantId  String
+  userId    String
+  tokenHash String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId])
+}
+
+model ConversationSession {
+  id            String              @id @default(cuid())
+  tenantId      String
+  userId        String
+  channel       String
+  status        ConversationStatus  @default(ACTIVE)
+  activeFlow    String?
+  currentStep   String?
+  contextJson   Json?
+  updatedAt     DateTime            @updatedAt
+  tenant        Tenant              @relation(fields: [tenantId], references: [id])
+  user          User                @relation(fields: [userId], references: [id])
+  messages      ConversationMessage[]
+  driverRoutes  DriverRoute[]
+  pickings      WarehousePicking[]
+  loadings      TruckLoading[]
+
+  @@index([tenantId, userId, status])
+}
+
+model ConversationMessage {
+  id               String   @id @default(cuid())
+  tenantId         String
+  sessionId        String
+  userId           String?
+  direction        Direction
+  messageType      MessageType
+  rawText          String?
+  transcriptText   String?
+  intent           String?
+  intentConfidence Float?
+  entitiesJson     Json?
+  createdAt        DateTime @default(now())
+  session          ConversationSession @relation(fields: [sessionId], references: [id])
+  user             User?    @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, createdAt])
+}
+
+model DriverRoute {
+  id              String   @id @default(cuid())
+  tenantId        String
+  driverUserId    String
+  vehicleLabel    String
+  status          RouteStatus
+  startOdometer   Float
+  endOdometer     Float?
+  startedAt       DateTime
+  closedAt        DateTime?
+  sourceSessionId String?
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  driver          User     @relation(fields: [driverUserId], references: [id])
+  sourceSession   ConversationSession? @relation(fields: [sourceSessionId], references: [id])
+  invoices        DriverInvoice[]
+  incidents       Incident[]
+
+  @@index([tenantId, startedAt])
+}
+
+model DriverInvoice {
+  id            String   @id @default(cuid())
+  tenantId      String
+  routeId       String
+  invoiceNumber String
+  createdAt     DateTime @default(now())
+  route         DriverRoute @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+}
+
+model WarehousePicking {
+  id              String   @id @default(cuid())
+  tenantId        String
+  workerUserId    String
+  orderRef        String
+  routeRef        String?
+  vehicleLabel    String?
+  pickedAt        DateTime
+  notes           String?
+  sourceSessionId String?
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  worker          User     @relation(fields: [workerUserId], references: [id])
+  sourceSession   ConversationSession? @relation(fields: [sourceSessionId], references: [id])
+
+  @@index([tenantId, pickedAt])
+}
+
+model TruckLoading {
+  id            String   @id @default(cuid())
+  tenantId      String
+  workerUserId  String
+  vehicleLabel  String
+  boxCount      Int?
+  weightKg      Float?
+  loadedAt      DateTime
+  notes         String?
+  sourceSessionId String?
+  tenant        Tenant   @relation(fields: [tenantId], references: [id])
+  worker        User     @relation(fields: [workerUserId], references: [id])
+  sourceSession ConversationSession? @relation(fields: [sourceSessionId], references: [id])
+
+  @@index([tenantId, loadedAt])
+}
+
+model Incident {
+  id               String         @id @default(cuid())
+  tenantId         String
+  reportedByUserId String
+  sourceType       String
+  relatedRouteId   String?
+  severity         Severity
+  incidentType     String
+  title            String
+  description      String
+  status           IncidentStatus @default(open)
+  detectedByAi     Boolean        @default(false)
+  createdAt        DateTime       @default(now())
+  closedAt         DateTime?
+  tenant           Tenant         @relation(fields: [tenantId], references: [id])
+  reportedBy       User           @relation(fields: [reportedByUserId], references: [id])
+  relatedRoute     DriverRoute?   @relation(fields: [relatedRouteId], references: [id])
+  notifications    IncidentNotification[]
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status, severity])
+}
+
+model IncidentNotification {
+  id         String              @id @default(cuid())
+  tenantId   String
+  incidentId String
+  channel    NotificationChannel
+  recipient  String
+  status     String              @default("pending")
+  sentAt     DateTime?
+  errorText  String?
+  incident   Incident            @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, sentAt])
+}
+
+model PayrollDocument {
+  id               String   @id @default(cuid())
+  tenantId         String
+  employeeUserId   String
+  periodYear       Int
+  periodMonth      Int
+  fileId           String
+  uploadedByUserId String
+  createdAt        DateTime @default(now())
+  tenant           Tenant   @relation(fields: [tenantId], references: [id])
+  employee         User     @relation("PayrollEmployee", fields: [employeeUserId], references: [id])
+  uploadedBy       User     @relation("PayrollUploader", fields: [uploadedByUserId], references: [id])
+  file             StoredFile @relation(fields: [fileId], references: [id])
+
+  @@unique([tenantId, employeeUserId, periodYear, periodMonth])
+  @@index([tenantId, createdAt])
+}
+
+model StoredFile {
+  id              String   @id @default(cuid())
+  tenantId        String
+  storageKey      String
+  originalName    String
+  mimeType        String
+  sizeBytes       Int
+  fileKind        FileKind
+  createdByUserId String?
+  createdAt       DateTime @default(now())
+  tenant          Tenant   @relation(fields: [tenantId], references: [id])
+  createdBy       User?    @relation(fields: [createdByUserId], references: [id])
+  payrolls        PayrollDocument[]
+
+  @@index([tenantId, createdAt])
+}
+
+model TenantAlertTarget {
+  id           String   @id @default(cuid())
+  tenantId     String
+  incidentType String?
+  severityMin  Severity
+  channel      NotificationChannel
+  targetValue  String
+  createdAt    DateTime @default(now())
+  tenant       Tenant   @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId, severityMin])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  actorUserId String?
+  action      String
+  targetType  String
+  targetId    String?
+  metaJson    Json?
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  actor       User?    @relation(fields: [actorUserId], references: [id])
+
+  @@index([tenantId, createdAt])
+}

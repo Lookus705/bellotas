@@ -1,0 +1,16 @@
+.env
+.env.local
+.env.*.local
+rrhh-cookies.txt
+node_modules/
+.pnpm-store/
+dist/
+.next/
+.turbo/
+coverage/
+*.log
+*.tmp
+*.swp
+*.swo
+Thumbs.db
+.DS_Store
