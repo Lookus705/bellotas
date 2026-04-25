@@ -2,25 +2,36 @@
 
 ## Superficies
 
-- `apps/api`: API NestJS con multitenancy, auth, Telegram, operaciones, incidencias y nominas.
-- `apps/web`: panel Next.js para `manager` y `RRHH`.
+- `apps/api`: API NestJS con multitenancy, auth web, core operativo y contratos canónicos por dominio.
+- `apps/web`: panel Next.js para `manager`, `RRHH` y `admin`.
 - `apps/worker`: worker de notificaciones por email y Telegram.
 
-## Flujo principal
+## Ingreso canónico
 
-1. Telegram recibe texto o audio.
-2. El webhook identifica tenant por `tenantSlug`.
-3. El usuario se autentica con `LOGIN CODIGO PIN`.
-4. Si el usuario ya esta vinculado, se reutiliza `telegram_user_id`.
-5. El mensaje se clasifica y se extraen campos minimos.
-6. Si faltan datos, el sistema responde con una aclaracion.
-7. Si los datos minimos estan completos, se persiste el reporte.
-8. Si la incidencia es grave, se crean notificaciones pendientes.
-9. El worker envia alertas por email y Telegram.
+- `POST /employee-events`
+- `POST /customer-messages`
+- `POST /email-events`
+- `POST /erp-events`
+- `POST /documents`
+
+El canal y proveedor viajan como datos del payload. `n8n` u otros adaptadores externos transforman entradas de Telegram, WhatsApp, Gmail, Outlook o ERP al contrato canónico antes de llamar al backend.
+
+## Compatibilidad temporal
+
+- `POST /telegram/webhook/:tenantSlug` sigue expuesto, pero actua como adaptador legacy.
+- Telegram ya no debe concentrar reglas de negocio; traduce y delega al contrato canónico de `employee-events`.
 
 ## Multitenancy
 
 - todas las tablas de negocio tienen `tenantId`
-- Telegram resuelve tenant por ruta de webhook
+- Telegram legacy resuelve tenant por ruta de webhook
 - web resuelve tenant desde el usuario autenticado
 - archivos se almacenan por prefijo de tenant en MinIO
+
+## Identidad comercial
+
+- `CommercialAccount`: cuenta comercial estable
+- `ChannelEndpoint`: endpoint/canal estable
+- `ContactPerson`: persona actual o historica asociada a la cuenta
+
+La memoria comercial pertenece a la cuenta. La memoria conversacional personalizada pertenece a la persona actual. El endpoint puede cambiar de persona sin perder el historico comercial de la cuenta.

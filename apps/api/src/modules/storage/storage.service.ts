@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
 import { PrismaService } from "../../common/prisma.service";
 import { FileKind } from "@prisma/client";
+import { NotFoundException } from "@nestjs/common";
 
 @Injectable()
 export class StorageService {
@@ -48,5 +49,29 @@ export class StorageService {
         createdByUserId: params.createdByUserId
       }
     });
+  }
+
+  async getFileBuffer(tenantId: string, fileId: string) {
+    const file = await this.prisma.storedFile.findFirst({
+      where: { id: fileId, tenantId }
+    });
+
+    if (!file) {
+      throw new NotFoundException("Archivo no encontrado");
+    }
+
+    const object = await this.client.send(
+      new GetObjectCommand({
+        Bucket: process.env.MINIO_BUCKET,
+        Key: file.storageKey
+      })
+    );
+
+    const bytes = await object.Body?.transformToByteArray();
+
+    return {
+      file,
+      buffer: Buffer.from(bytes ?? [])
+    };
   }
 }

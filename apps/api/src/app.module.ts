@@ -14,6 +14,12 @@ import { PayrollModule } from "./modules/payroll/payroll.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { ManagerModule } from "./modules/manager/manager.module";
 import { AuditModule } from "./modules/audit/audit.module";
+import { IntegrationsModule } from "./modules/integrations/integrations.module";
+import { SettingsModule } from "./modules/settings/settings.module";
+import { HrModule } from "./modules/hr/hr.module";
+import { RemindersModule } from "./modules/reminders/reminders.module";
+import { CanonicalIngressModule } from "./modules/canonical-ingress/canonical-ingress.module";
+import { WorkItemsModule } from "./modules/work-items/work-items.module";
 
 @Module({
   imports: [
@@ -22,14 +28,20 @@ import { AuditModule } from "./modules/audit/audit.module";
     PrismaModule,
     AuditModule,
     StorageModule,
+    SettingsModule,
     AuthModule,
+    HrModule,
+    RemindersModule,
     AiModule,
     ConversationModule,
     IncidentsModule,
     OperationsModule,
     PayrollModule,
     ManagerModule,
-    TelegramModule
+    WorkItemsModule,
+    TelegramModule,
+    IntegrationsModule,
+    CanonicalIngressModule
   ],
   controllers: [AppController],
   providers: [AppService]

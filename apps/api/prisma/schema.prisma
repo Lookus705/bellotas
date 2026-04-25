@@ -59,11 +59,64 @@ enum FileKind {
   audio
   payroll_pdf
   evidence
+  document
 }
 
 enum NotificationChannel {
   telegram
   email
+}
+
+enum ReminderType {
+  personal
+  system
+}
+
+enum ReminderStatus {
+  pending
+  delivered
+  cancelled
+}
+
+enum WorkType {
+  route
+  order
+  appointment
+  visit
+  task
+}
+
+enum WorkItemStatus {
+  draft
+  assigned
+  acknowledged
+  completed
+  cancelled
+}
+
+enum WorkAssignmentStatus {
+  active
+  reassigned
+  completed
+  cancelled
+}
+
+enum WorkItemEventType {
+  created
+  assigned
+  reassigned
+  updated
+  completed
+  cancelled
+  note_added
+  note_promoted
+}
+
+enum OperationalNoteType {
+  work_note
+  person_preference
+  account_rule
+  provisional_observation
 }
 
 model Tenant {
@@ -83,6 +136,18 @@ model Tenant {
   files          StoredFile[]
   alertTargets   TenantAlertTarget[]
   auditLogs      AuditLog[]
+  integrationApiKeys IntegrationApiKey[]
+  integrationRequests IntegrationRequest[]
+  settings       TenantSettings?
+  documents      TenantDocument[]
+  reminders      Reminder[]
+  commercialAccounts CommercialAccount[]
+  channelEndpoints ChannelEndpoint[]
+  contactPersons ContactPerson[]
+  workItems       WorkItem[]
+  workAssignments WorkAssignment[]
+  operationalNotes OperationalNote[]
+  workItemEvents  WorkItemEvent[]
 }
 
 model User {
@@ -90,6 +155,8 @@ model User {
   tenantId        String
   employeeCode    String
   pinHash         String
+  mustChangePin   Boolean              @default(false)
+  pinUpdatedAt    DateTime?
   fullName        String
   email           String?
   phone           String?
@@ -109,6 +176,16 @@ model User {
   uploadedPayrolls PayrollDocument[]   @relation("PayrollUploader")
   files           StoredFile[]
   auditLogs       AuditLog[]
+  uploadedDocuments TenantDocument[]
+  reminders       Reminder[]
+  channelEndpoints ChannelEndpoint[]
+  assignedWorkItems WorkItem[]           @relation("AssignedWorkItems")
+  createdWorkItems  WorkItem[]           @relation("CreatedWorkItems")
+  workAssignments   WorkAssignment[]     @relation("AssignedUserAssignments")
+  assignmentActions WorkAssignment[]     @relation("AssignmentActor")
+  operationalNotes  OperationalNote[]    @relation("OperationalNoteAuthor")
+  noteDecisions     OperationalNote[]    @relation("OperationalNoteDecider")
+  workItemEvents    WorkItemEvent[]      @relation("WorkItemEventActor")
 
   @@unique([tenantId, employeeCode])
   @@index([tenantId, createdAt])
@@ -155,7 +232,10 @@ model WebSession {
 model ConversationSession {
   id            String              @id @default(cuid())
   tenantId      String
-  userId        String
+  userId        String?
+  accountId     String?
+  contactPersonId String?
+  channelEndpointId String?
   channel       String
   status        ConversationStatus  @default(ACTIVE)
   activeFlow    String?
@@ -163,13 +243,19 @@ model ConversationSession {
   contextJson   Json?
   updatedAt     DateTime            @updatedAt
   tenant        Tenant              @relation(fields: [tenantId], references: [id])
-  user          User                @relation(fields: [userId], references: [id])
+  user          User?               @relation(fields: [userId], references: [id])
+  account       CommercialAccount?  @relation(fields: [accountId], references: [id])
+  contactPerson ContactPerson?      @relation(fields: [contactPersonId], references: [id])
+  channelEndpoint ChannelEndpoint?  @relation(fields: [channelEndpointId], references: [id])
   messages      ConversationMessage[]
   driverRoutes  DriverRoute[]
   pickings      WarehousePicking[]
   loadings      TruckLoading[]
 
   @@index([tenantId, userId, status])
+  @@index([tenantId, accountId, status])
+  @@index([tenantId, contactPersonId, status])
+  @@index([tenantId, channelEndpointId, status])
 }
 
 model ConversationMessage {
@@ -177,6 +263,9 @@ model ConversationMessage {
   tenantId         String
   sessionId        String
   userId           String?
+  accountId        String?
+  contactPersonId  String?
+  channelEndpointId String?
   direction        Direction
   messageType      MessageType
   rawText          String?
@@ -187,8 +276,14 @@ model ConversationMessage {
   createdAt        DateTime @default(now())
   session          ConversationSession @relation(fields: [sessionId], references: [id])
   user             User?    @relation(fields: [userId], references: [id])
+  account          CommercialAccount? @relation(fields: [accountId], references: [id])
+  contactPerson    ContactPerson? @relation(fields: [contactPersonId], references: [id])
+  channelEndpoint  ChannelEndpoint? @relation(fields: [channelEndpointId], references: [id])
+  sourcedNotes     OperationalNote[] @relation("OperationalNoteSourceMessage")
 
   @@index([tenantId, createdAt])
+  @@index([tenantId, accountId, createdAt])
+  @@index([tenantId, contactPersonId, createdAt])
 }
 
 model DriverRoute {
@@ -324,8 +419,136 @@ model StoredFile {
   tenant          Tenant   @relation(fields: [tenantId], references: [id])
   createdBy       User?    @relation(fields: [createdByUserId], references: [id])
   payrolls        PayrollDocument[]
+  documents       TenantDocument[]
 
   @@index([tenantId, createdAt])
+}
+
+model CommercialAccount {
+  id              String   @id @default(cuid())
+  tenantId        String
+  externalRef     String?
+  name            String
+  commercialMemory Json?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  tenant          Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  endpoints       ChannelEndpoint[]
+  people          ContactPerson[]
+  sessions        ConversationSession[]
+  messages        ConversationMessage[]
+  documents       TenantDocument[]
+  workItems       WorkItem[]
+  operationalNotes OperationalNote[]
+
+  @@index([tenantId, name])
+  @@unique([tenantId, externalRef])
+}
+
+model ContactPerson {
+  id                String   @id @default(cuid())
+  tenantId          String
+  accountId         String
+  fullName          String
+  alias             String?
+  personalMemory    Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  tenant            Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account           CommercialAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  currentEndpoints  ChannelEndpoint[] @relation("CurrentEndpointPerson")
+  sessions          ConversationSession[]
+  messages          ConversationMessage[]
+  workItems         WorkItem[]
+  operationalNotes  OperationalNote[]
+
+  @@index([tenantId, accountId, fullName])
+}
+
+model ChannelEndpoint {
+  id               String   @id @default(cuid())
+  tenantId         String
+  channel          String
+  provider         String
+  endpointExternalId String
+  label            String?
+  accountId        String?
+  userId           String?
+  currentPersonId  String?
+  metadataJson     Json?
+  linkedAt         DateTime @default(now())
+  lastSeenAt       DateTime?
+  revokedAt        DateTime?
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account          CommercialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  user             User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  currentPerson    ContactPerson? @relation("CurrentEndpointPerson", fields: [currentPersonId], references: [id], onDelete: SetNull)
+  sessions         ConversationSession[]
+  messages         ConversationMessage[]
+  documents        TenantDocument[]
+
+  @@unique([tenantId, channel, provider, endpointExternalId])
+  @@index([tenantId, accountId, revokedAt])
+  @@index([tenantId, userId, revokedAt])
+}
+
+model TenantSettings {
+  id                     String   @id @default(cuid())
+  tenantId               String   @unique
+  companyName            String?
+  businessProfile        String   @default("logistics")
+  companyDescription     String?
+  companyTimezone        String?
+  operationalHours       String?
+  responsibleName        String?
+  responsibleEmail       String?
+  telegramEnabled        Boolean  @default(true)
+  telegramBotToken       String?
+  emailProvider          String?
+  outboundEmailFrom      String?
+  smtpHost               String?
+  smtpPort               Int?
+  smtpUser               String?
+  smtpPassword           String?
+  aiProvider             String?
+  aiModel                String?
+  aiApiKey               String?
+  assistantInstructions  String?
+  operationalInstructions String?
+  hrInstructions         String?
+  integrationNotes       String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  tenant                 Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantDocument {
+  id               String   @id @default(cuid())
+  tenantId         String
+  fileId           String
+  uploadedByUserId String?
+  accountId        String?
+  channelEndpointId String?
+  sourceType       String?
+  sourceChannel    String?
+  sourceProvider   String?
+  externalEventId  String?
+  area             String
+  category         String
+  title            String
+  description      String?
+  useForAi         Boolean  @default(false)
+  extractedText    String?
+  createdAt        DateTime @default(now())
+  tenant           Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  file             StoredFile @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  uploadedBy       User?    @relation(fields: [uploadedByUserId], references: [id])
+  account          CommercialAccount? @relation(fields: [accountId], references: [id])
+  channelEndpoint  ChannelEndpoint? @relation(fields: [channelEndpointId], references: [id])
+
+  @@index([tenantId, area, category])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, accountId, createdAt])
 }
 
 model TenantAlertTarget {
@@ -354,4 +577,160 @@ model AuditLog {
   actor       User?    @relation(fields: [actorUserId], references: [id])
 
   @@index([tenantId, createdAt])
+}
+
+model Reminder {
+  id             String         @id @default(cuid())
+  tenantId       String
+  userId         String
+  createdByUserId String
+  type           ReminderType
+  title          String
+  dueAt          DateTime
+  status         ReminderStatus @default(pending)
+  deliveredAt    DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime       @default(now())
+  tenant         Tenant         @relation(fields: [tenantId], references: [id])
+  user           User           @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId, status, dueAt])
+  @@index([tenantId, status, dueAt])
+}
+
+model IntegrationApiKey {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  keyHash     String   @unique
+  scopes      String[]
+  isActive    Boolean  @default(true)
+  lastUsedAt  DateTime?
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id])
+  requests    IntegrationRequest[]
+
+  @@index([tenantId, isActive])
+  @@unique([tenantId, name])
+}
+
+model IntegrationRequest {
+  id                  String   @id @default(cuid())
+  tenantId            String
+  integrationApiKeyId String
+  operation           String
+  idempotencyKey      String
+  requestHash         String
+  responseJson        Json?
+  createdAt           DateTime @default(now())
+  completedAt         DateTime?
+  tenant              Tenant   @relation(fields: [tenantId], references: [id])
+  integrationApiKey   IntegrationApiKey @relation(fields: [integrationApiKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, operation, idempotencyKey])
+  @@index([tenantId, createdAt])
+}
+
+model WorkItem {
+  id                String         @id @default(cuid())
+  tenantId          String
+  workType          WorkType
+  status            WorkItemStatus @default(draft)
+  title             String
+  summary           String?
+  accountId         String?
+  contactPersonId   String?
+  assignedUserId    String?
+  createdByUserId   String
+  targetAt          DateTime?
+  metadataJson      Json?
+  deliveryChannel   String?
+  deliveryProvider  String?
+  deliveryMessage   String?
+  deliveryPayloadJson Json?
+  deliveryEnabled   Boolean        @default(false)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  tenant            Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  account           CommercialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contactPerson     ContactPerson? @relation(fields: [contactPersonId], references: [id], onDelete: SetNull)
+  assignedUser      User?          @relation("AssignedWorkItems", fields: [assignedUserId], references: [id], onDelete: SetNull)
+  createdBy         User           @relation("CreatedWorkItems", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  assignments       WorkAssignment[]
+  notes             OperationalNote[]
+  events            WorkItemEvent[]
+
+  @@index([tenantId, status, createdAt])
+  @@index([tenantId, workType, createdAt])
+  @@index([tenantId, assignedUserId, status])
+  @@index([tenantId, accountId, createdAt])
+}
+
+model WorkAssignment {
+  id               String               @id @default(cuid())
+  tenantId         String
+  workItemId       String
+  assignedUserId   String
+  assignedByUserId String
+  status           WorkAssignmentStatus @default(active)
+  assignedAt       DateTime             @default(now())
+  acknowledgedAt   DateTime?
+  endedAt          DateTime?
+  metadataJson     Json?
+  tenant           Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workItem         WorkItem             @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  assignedUser     User                 @relation("AssignedUserAssignments", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  assignedBy       User                 @relation("AssignmentActor", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([tenantId, workItemId, assignedAt])
+  @@index([tenantId, assignedUserId, status])
+}
+
+model OperationalNote {
+  id               String              @id @default(cuid())
+  tenantId         String
+  type             OperationalNoteType
+  title            String?
+  content          String
+  summary          String?
+  workItemId       String?
+  accountId        String?
+  contactPersonId  String?
+  createdByUserId  String?
+  decidedByUserId  String?
+  sourceMessageId  String?
+  proposedByAi     Boolean             @default(false)
+  confidence       Float?
+  metadataJson     Json?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  tenant           Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workItem         WorkItem?           @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  account          CommercialAccount?  @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  contactPerson    ContactPerson?      @relation(fields: [contactPersonId], references: [id], onDelete: SetNull)
+  createdBy        User?               @relation("OperationalNoteAuthor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  decidedBy        User?               @relation("OperationalNoteDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+  sourceMessage    ConversationMessage? @relation("OperationalNoteSourceMessage", fields: [sourceMessageId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, type, createdAt])
+  @@index([tenantId, workItemId, createdAt])
+  @@index([tenantId, accountId, createdAt])
+  @@index([tenantId, contactPersonId, createdAt])
+}
+
+model WorkItemEvent {
+  id             String            @id @default(cuid())
+  tenantId       String
+  workItemId     String
+  actorUserId    String?
+  eventType      WorkItemEventType
+  details        String?
+  metaJson       Json?
+  createdAt      DateTime          @default(now())
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workItem       WorkItem          @relation(fields: [workItemId], references: [id], onDelete: Cascade)
+  actor          User?             @relation("WorkItemEventActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, workItemId, createdAt])
+  @@index([tenantId, eventType, createdAt])
 }

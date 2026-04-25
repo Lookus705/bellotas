@@ -7,7 +7,7 @@ Plataforma multitenant de automatizacion operativa asistida por IA para logistic
 - multitenancy base por tenant
 - login web para `manager` y `RRHH`
 - login Telegram por `employee_code + PIN`
-- vinculacion de `telegram_user_id`
+- vinculacion de canal legacy Telegram con identidad neutral por `ChannelEndpoint`
 - flujos MVP de chofer y almacenista
 - audio en espanol con transcripcion
 - clasificacion de intencion y extraccion minima
@@ -59,6 +59,11 @@ docker compose exec api pnpm seed
 
 ## Notas
 
-- El webhook Telegram expone `POST /telegram/webhook/:tenantSlug`
-- Cada tenant puede usar su propia ruta de webhook
+- El core expone endpoints canónicos por dominio:
+  - `POST /employee-events`
+  - `POST /customer-messages`
+  - `POST /email-events`
+  - `POST /erp-events`
+  - `POST /documents`
+- `POST /telegram/webhook/:tenantSlug` sigue existiendo como adaptador legacy temporal
 - Si `OPENAI_API_KEY` no esta configurada, el sistema usa un clasificador por reglas como fallback

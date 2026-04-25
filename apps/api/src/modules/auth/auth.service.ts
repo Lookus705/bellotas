@@ -8,7 +8,7 @@ import { PrismaService } from "../../common/prisma.service";
 import * as argon2 from "argon2";
 import { createHash, randomUUID } from "crypto";
 import { AuditService } from "../audit/audit.service";
-import { UserRole } from "@prisma/client";
+import { UserRole, UserStatus } from "@prisma/client";
 
 @Injectable()
 export class AuthService {
@@ -36,6 +36,9 @@ export class AuthService {
 
     if (!user || !(await argon2.verify(user.pinHash, pin))) {
       throw new UnauthorizedException("Invalid credentials");
+    }
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException("User inactive");
     }
 
     const roles = user.roles.map((role) => role.role);
@@ -89,6 +92,54 @@ export class AuthService {
     return { accessToken, refreshToken };
   }
 
+  async refreshWebSession(refreshToken: string) {
+    if (!refreshToken) {
+      throw new UnauthorizedException("Missing refresh token");
+    }
+
+    const refreshTokenHash = createHash("sha256").update(refreshToken).digest("hex");
+    const session = await this.prisma.webSession.findFirst({
+      where: {
+        tokenHash: refreshTokenHash,
+        expiresAt: { gt: new Date() }
+      },
+      include: {
+        user: {
+          include: {
+            roles: true
+          }
+        }
+      }
+    });
+
+    if (!session) {
+      throw new UnauthorizedException("Invalid refresh token");
+    }
+
+    const roles = session.user.roles.map((role) => role.role);
+    const tokens = await this.issueTokens(
+      session.user.id,
+      session.tenantId,
+      session.user.employeeCode,
+      roles
+    );
+
+    await this.prisma.webSession.delete({
+      where: { id: session.id }
+    });
+
+    return {
+      user: {
+        id: session.user.id,
+        tenantId: session.tenantId,
+        fullName: session.user.fullName,
+        employeeCode: session.user.employeeCode,
+        roles
+      },
+      ...tokens
+    };
+  }
+
   async getUserProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -134,6 +185,39 @@ export class AuthService {
     if (!user || !(await argon2.verify(user.pinHash, pin))) {
       throw new UnauthorizedException("Codigo o PIN invalido");
     }
+    if (user.status !== UserStatus.ACTIVE) {
+      throw new UnauthorizedException("Usuario inactivo");
+    }
+
+    await this.prisma.telegramLink.updateMany({
+      where: {
+        tenantId: tenant.id,
+        userId: user.id,
+        revokedAt: null,
+        NOT: {
+          telegramUserId
+        }
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
+
+    await this.prisma.channelEndpoint.updateMany({
+      where: {
+        tenantId: tenant.id,
+        userId: user.id,
+        channel: "telegram",
+        provider: "telegram",
+        revokedAt: null,
+        NOT: {
+          endpointExternalId: telegramUserId
+        }
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    });
 
     const existing = await this.prisma.telegramLink.findFirst({
       where: {
@@ -164,6 +248,32 @@ export class AuthService {
       });
     }
 
+    await this.prisma.channelEndpoint.upsert({
+      where: {
+        tenantId_channel_provider_endpointExternalId: {
+          tenantId: tenant.id,
+          channel: "telegram",
+          provider: "telegram",
+          endpointExternalId: telegramUserId
+        }
+      },
+      update: {
+        userId: user.id,
+        label: user.fullName,
+        revokedAt: null,
+        lastSeenAt: new Date()
+      },
+      create: {
+        tenantId: tenant.id,
+        userId: user.id,
+        channel: "telegram",
+        provider: "telegram",
+        endpointExternalId: telegramUserId,
+        label: user.fullName,
+        lastSeenAt: new Date()
+      }
+    });
+
     await this.auditService.log({
       tenantId: tenant.id,
       actorUserId: user.id,
@@ -178,7 +288,65 @@ export class AuthService {
       user: {
         id: user.id,
         fullName: user.fullName,
-        roles: user.roles.map((role) => role.role)
+        employeeCode: user.employeeCode,
+        roles: user.roles.map((role) => role.role),
+        mustChangePin: user.mustChangePin
+      }
+    };
+  }
+
+  async changeTelegramPin(params: {
+    tenantSlug: string;
+    telegramUserId: string;
+    newPin: string;
+  }) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { slug: params.tenantSlug } });
+    if (!tenant) {
+      throw new NotFoundException("Tenant not found");
+    }
+
+    const link = await this.prisma.telegramLink.findFirst({
+      where: {
+        tenantId: tenant.id,
+        telegramUserId: params.telegramUserId,
+        revokedAt: null
+      },
+      include: {
+        user: {
+          include: { roles: true }
+        }
+      }
+    });
+
+    if (!link) {
+      throw new UnauthorizedException("No hay sesion de Telegram vinculada");
+    }
+
+    await this.prisma.user.update({
+      where: { id: link.user.id },
+      data: {
+        pinHash: await argon2.hash(params.newPin),
+        mustChangePin: false,
+        pinUpdatedAt: new Date()
+      }
+    });
+
+    await this.auditService.log({
+      tenantId: tenant.id,
+      actorUserId: link.user.id,
+      action: "auth.telegram.pin_changed",
+      targetType: "user",
+      targetId: link.user.id
+    });
+
+    return {
+      tenant,
+      user: {
+        id: link.user.id,
+        fullName: link.user.fullName,
+        employeeCode: link.user.employeeCode,
+        roles: link.user.roles.map((role) => role.role),
+        mustChangePin: false
       }
     };
   }
@@ -203,6 +371,9 @@ export class AuthService {
     if (!link) {
       return null;
     }
+    if (link.user.status !== UserStatus.ACTIVE) {
+      return null;
+    }
 
     await this.prisma.telegramLink.update({
       where: { id: link.id },
@@ -216,7 +387,8 @@ export class AuthService {
         tenantId: tenant.id,
         fullName: link.user.fullName,
         employeeCode: link.user.employeeCode,
-        roles: link.user.roles.map((role) => role.role)
+        roles: link.user.roles.map((role) => role.role),
+        mustChangePin: link.user.mustChangePin
       }
     };
   }

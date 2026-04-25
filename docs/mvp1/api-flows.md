@@ -10,6 +10,19 @@
 
 - `POST /api/telegram/webhook/:tenantSlug`
 
+Compatibilidad temporal:
+
+- el webhook Telegram traduce al contrato interno `POST /api/employee-events`
+- no debe ser el punto de entrada arquitectonico principal a futuro
+
+## Ingreso canónico
+
+- `POST /api/employee-events`
+- `POST /api/customer-messages`
+- `POST /api/email-events`
+- `POST /api/erp-events`
+- `POST /api/documents`
+
 Comandos base:
 
 - `/start`

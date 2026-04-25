@@ -35,6 +35,23 @@ export class AuthController {
     return { ok: true };
   }
 
+  @Post("web/refresh")
+  async refresh(@Res({ passthrough: true }) response: Response) {
+    const refreshToken = response.req.cookies?.refresh_token;
+    const result = await this.authService.refreshWebSession(refreshToken);
+    response.cookie("access_token", result.accessToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false
+    });
+    response.cookie("refresh_token", result.refreshToken, {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: false
+    });
+    return { user: result.user };
+  }
+
   @Get("me")
   @UseGuards(AuthGuard)
   me(@CurrentUser() authUser: AuthUser) {

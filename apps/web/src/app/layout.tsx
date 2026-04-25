@@ -2,8 +2,8 @@ import "./globals.css";
 import type { ReactNode } from "react";
 
 export const metadata = {
-  title: "Bellotas MVP 1",
-  description: "Panel operativo minimo"
+  title: "Plataforma operativa multitenant",
+  description: "Panel interno multitenant para operacion, empleados, documentos y automatizacion asistida"
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

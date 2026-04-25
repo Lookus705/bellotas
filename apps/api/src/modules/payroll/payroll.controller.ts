@@ -45,4 +45,33 @@ export class PayrollController {
   listPayrolls(@CurrentUser() authUser: AuthUser) {
     return this.payrollService.listPayrolls(authUser.tenantId);
   }
+
+  @Post("dispatch")
+  @Roles("rrhh", "admin")
+  dispatchPayrolls(
+    @CurrentUser() authUser: AuthUser,
+    @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
+  ) {
+    return this.payrollService.dispatchPayrolls({
+      tenantId: authUser.tenantId,
+      actorUserId: authUser.userId,
+      periodYear: Number(body.periodYear),
+      periodMonth: Number(body.periodMonth),
+      payrollIds: body.payrollIds
+    });
+  }
+
+  @Post("dispatch/validate")
+  @Roles("rrhh", "admin")
+  validateDispatchPayrolls(
+    @CurrentUser() authUser: AuthUser,
+    @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
+  ) {
+    return this.payrollService.validatePayrollDispatch({
+      tenantId: authUser.tenantId,
+      periodYear: Number(body.periodYear),
+      periodMonth: Number(body.periodMonth),
+      payrollIds: body.payrollIds
+    });
+  }
 }

@@ -14,3 +14,5 @@ coverage/
 *.swo
 Thumbs.db
 .DS_Store
+cookies.txt
+rrhh-cookies.txt
