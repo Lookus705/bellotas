@@ -142,6 +142,61 @@ export class SettingsService {
     return document;
   }
 
+  async createDocumentFromStoredFile(params: {
+    tenantId: string;
+    uploadedByUserId: string;
+    actorRoles: UserRole[];
+    area: string;
+    category: string;
+    title: string;
+    description?: string;
+    useForAi?: boolean;
+    fileId: string;
+  }) {
+    this.assertDocumentAccess(params.actorRoles, params.category);
+
+    const stored = await this.storageService.getFileBuffer(params.tenantId, params.fileId);
+    const extractedText = this.extractDocumentText(stored.buffer, stored.file.mimeType);
+    if (stored.file.fileKind !== FileKind.document) {
+      await this.prisma.storedFile.update({
+        where: { id: stored.file.id },
+        data: { fileKind: FileKind.document }
+      });
+    }
+
+    const document = await this.prisma.tenantDocument.create({
+      data: {
+        tenantId: params.tenantId,
+        fileId: stored.file.id,
+        uploadedByUserId: params.uploadedByUserId,
+        area: params.area,
+        category: params.category,
+        title: params.title,
+        description: params.description,
+        useForAi: params.useForAi ?? false,
+        extractedText
+      },
+      include: {
+        uploadedBy: true,
+        file: true
+      }
+    });
+
+    await this.auditService.log({
+      tenantId: params.tenantId,
+      actorUserId: params.uploadedByUserId,
+      action: "document.uploaded",
+      targetType: "tenant_document",
+      targetId: document.id,
+      meta: {
+        area: params.area,
+        category: params.category
+      }
+    });
+
+    return document;
+  }
+
   async listDocuments(tenantId: string, roles: UserRole[], area?: string) {
     const categories = this.allowedDocumentCategories(roles);
     return this.prisma.tenantDocument.findMany({

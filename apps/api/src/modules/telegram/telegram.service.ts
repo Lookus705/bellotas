@@ -320,8 +320,7 @@ export class TelegramService {
     pendingUpload: PendingUploadContext;
     title: string;
   }) {
-    const stored = await this.storageService.getFileBuffer(params.tenantId, params.pendingUpload.fileId);
-    await this.settingsService.uploadDocument({
+    await this.settingsService.createDocumentFromStoredFile({
       tenantId: params.tenantId,
       uploadedByUserId: params.userId,
       actorRoles: params.roles,
@@ -330,9 +329,7 @@ export class TelegramService {
       title: params.title.trim() || params.pendingUpload.fileName,
       description: `Subido por Telegram`,
       useForAi: false,
-      fileName: stored.file.originalName,
-      mimeType: stored.file.mimeType,
-      buffer: stored.buffer
+      fileId: params.pendingUpload.fileId
     });
   }
 

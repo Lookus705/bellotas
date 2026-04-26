@@ -140,6 +140,17 @@ export class AuthService {
     };
   }
 
+  async logoutWeb(refreshToken?: string) {
+    if (!refreshToken) {
+      return;
+    }
+
+    const refreshTokenHash = createHash("sha256").update(refreshToken).digest("hex");
+    await this.prisma.webSession.deleteMany({
+      where: { tokenHash: refreshTokenHash }
+    });
+  }
+
   async getUserProfile(userId: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

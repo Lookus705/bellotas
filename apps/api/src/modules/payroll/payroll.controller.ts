@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -28,12 +29,21 @@ export class PayrollController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { employeeCode: string; periodYear: string; periodMonth: string }
   ) {
+    if (!file) {
+      throw new BadRequestException("Debes adjuntar un archivo de nomina");
+    }
+    if (!body.employeeCode?.trim()) {
+      throw new BadRequestException("El codigo de empleado es obligatorio");
+    }
+    const periodYear = this.parsePeriodYear(body.periodYear);
+    const periodMonth = this.parsePeriodMonth(body.periodMonth);
+
     return this.payrollService.uploadPayroll({
       tenantId: authUser.tenantId,
       uploadedByUserId: authUser.userId,
-      employeeCode: body.employeeCode,
-      periodYear: Number(body.periodYear),
-      periodMonth: Number(body.periodMonth),
+      employeeCode: body.employeeCode.trim(),
+      periodYear,
+      periodMonth,
       fileName: file.originalname,
       mimeType: file.mimetype,
       buffer: file.buffer
@@ -52,11 +62,14 @@ export class PayrollController {
     @CurrentUser() authUser: AuthUser,
     @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
   ) {
+    const periodYear = this.parsePeriodYear(body.periodYear);
+    const periodMonth = this.parsePeriodMonth(body.periodMonth);
+
     return this.payrollService.dispatchPayrolls({
       tenantId: authUser.tenantId,
       actorUserId: authUser.userId,
-      periodYear: Number(body.periodYear),
-      periodMonth: Number(body.periodMonth),
+      periodYear,
+      periodMonth,
       payrollIds: body.payrollIds
     });
   }
@@ -67,11 +80,30 @@ export class PayrollController {
     @CurrentUser() authUser: AuthUser,
     @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
   ) {
+    const periodYear = this.parsePeriodYear(body.periodYear);
+    const periodMonth = this.parsePeriodMonth(body.periodMonth);
+
     return this.payrollService.validatePayrollDispatch({
       tenantId: authUser.tenantId,
-      periodYear: Number(body.periodYear),
-      periodMonth: Number(body.periodMonth),
+      periodYear,
+      periodMonth,
       payrollIds: body.payrollIds
     });
+  }
+
+  private parsePeriodYear(value: string) {
+    const periodYear = Number(value);
+    if (!Number.isInteger(periodYear) || periodYear < 2000 || periodYear > 2100) {
+      throw new BadRequestException("El ano de nomina no es valido");
+    }
+    return periodYear;
+  }
+
+  private parsePeriodMonth(value: string) {
+    const periodMonth = Number(value);
+    if (!Number.isInteger(periodMonth) || periodMonth < 1 || periodMonth > 12) {
+      throw new BadRequestException("El mes de nomina no es valido");
+    }
+    return periodMonth;
   }
 }

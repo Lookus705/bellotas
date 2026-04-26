@@ -1,5 +1,5 @@
-import { Body, Controller, Get, Post, Res, UseGuards } from "@nestjs/common";
-import { Response } from "express";
+import { Body, Controller, Get, Post, Req, Res, UseGuards } from "@nestjs/common";
+import { Request, Response } from "express";
 import { AuthService } from "./auth.service";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
@@ -15,40 +15,31 @@ export class AuthController {
     @Res({ passthrough: true }) response: Response
   ) {
     const result = await this.authService.loginWeb(body.tenantSlug, body.employeeCode, body.pin);
-    response.cookie("access_token", result.accessToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false
-    });
-    response.cookie("refresh_token", result.refreshToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false
-    });
+    response.cookie("access_token", result.accessToken, this.cookieOptions());
+    response.cookie("refresh_token", result.refreshToken, this.cookieOptions());
     return { user: result.user };
   }
 
   @Post("web/logout")
-  logout(@Res({ passthrough: true }) response: Response) {
-    response.clearCookie("access_token");
-    response.clearCookie("refresh_token");
+  async logout(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    await this.authService.logoutWeb(request.cookies?.refresh_token);
+    response.clearCookie("access_token", this.cookieOptions());
+    response.clearCookie("refresh_token", this.cookieOptions());
     return { ok: true };
   }
 
   @Post("web/refresh")
-  async refresh(@Res({ passthrough: true }) response: Response) {
-    const refreshToken = response.req.cookies?.refresh_token;
+  async refresh(
+    @Req() request: Request,
+    @Res({ passthrough: true }) response: Response
+  ) {
+    const refreshToken = request.cookies?.refresh_token;
     const result = await this.authService.refreshWebSession(refreshToken);
-    response.cookie("access_token", result.accessToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false
-    });
-    response.cookie("refresh_token", result.refreshToken, {
-      httpOnly: true,
-      sameSite: "lax",
-      secure: false
-    });
+    response.cookie("access_token", result.accessToken, this.cookieOptions());
+    response.cookie("refresh_token", result.refreshToken, this.cookieOptions());
     return { user: result.user };
   }
 
@@ -56,5 +47,17 @@ export class AuthController {
   @UseGuards(AuthGuard)
   me(@CurrentUser() authUser: AuthUser) {
     return this.authService.getUserProfile(authUser.userId);
+  }
+
+  private cookieOptions() {
+    return {
+      httpOnly: true,
+      sameSite: "lax" as const,
+      secure: this.useSecureCookies()
+    };
+  }
+
+  private useSecureCookies() {
+    return process.env.NODE_ENV === "production";
   }
 }

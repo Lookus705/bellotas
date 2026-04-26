@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -86,13 +87,26 @@ export class SettingsController {
       useForAi?: string | boolean;
     }
   ) {
+    if (!file) {
+      throw new BadRequestException("Debes adjuntar un archivo");
+    }
+    if (!body.title?.trim()) {
+      throw new BadRequestException("El documento necesita un titulo");
+    }
+    if (!body.category?.trim()) {
+      throw new BadRequestException("El documento necesita una categoria");
+    }
+    if (!body.area?.trim()) {
+      throw new BadRequestException("El documento necesita un area");
+    }
+
     return this.settingsService.uploadDocument({
       tenantId: authUser.tenantId,
       uploadedByUserId: authUser.userId,
       actorRoles: authUser.roles,
-      area: body.area,
-      category: body.category,
-      title: body.title,
+      area: body.area.trim(),
+      category: body.category.trim(),
+      title: body.title.trim(),
       description: body.description,
       useForAi: body.useForAi === true || body.useForAi === "true",
       fileName: file.originalname,
