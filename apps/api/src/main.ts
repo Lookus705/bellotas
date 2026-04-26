@@ -2,9 +2,11 @@ import { ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module";
+import { validateRequiredEnv } from "./common/env";
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  validateRequiredEnv();
   app.enableCors({
     origin: [process.env.WEB_BASE_URL ?? "http://localhost:3001"],
     credentials: true

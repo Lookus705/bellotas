@@ -4,6 +4,7 @@ import { AuthService } from "./auth.service";
 import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { AuthUser } from "../../common/auth.types";
+import { WebLoginDto } from "./auth.dto";
 
 @Controller("auth")
 export class AuthController {
@@ -11,10 +12,14 @@ export class AuthController {
 
   @Post("web/login")
   async loginWeb(
-    @Body() body: { tenantSlug: string; employeeCode: string; pin: string },
+    @Body() body: WebLoginDto,
     @Res({ passthrough: true }) response: Response
   ) {
-    const result = await this.authService.loginWeb(body.tenantSlug, body.employeeCode, body.pin);
+    const result = await this.authService.loginWeb(
+      body.tenantSlug.trim(),
+      body.employeeCode.trim(),
+      body.pin
+    );
     response.cookie("access_token", result.accessToken, this.cookieOptions());
     response.cookie("refresh_token", result.refreshToken, this.cookieOptions());
     return { user: result.user };

@@ -20,6 +20,8 @@ import { AuthGuard } from "../../common/auth.guard";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { Roles } from "../../common/roles.decorator";
 import { RolesGuard } from "../../common/roles.guard";
+import { documentUploadOptions } from "../../common/upload-limits";
+import { UpdateSettingsDto, UploadDocumentDto } from "./settings.dto";
 import { SettingsService } from "./settings.service";
 
 @Controller("settings")
@@ -37,31 +39,7 @@ export class SettingsController {
   @Roles("admin")
   updateSettings(
     @CurrentUser() authUser: AuthUser,
-    @Body()
-    body: {
-      companyName?: string;
-      businessProfile?: string;
-      companyDescription?: string;
-      companyTimezone?: string;
-      operationalHours?: string;
-      responsibleName?: string;
-      responsibleEmail?: string;
-      telegramEnabled?: boolean;
-      telegramBotToken?: string;
-      emailProvider?: string;
-      outboundEmailFrom?: string;
-      smtpHost?: string;
-      smtpPort?: number;
-      smtpUser?: string;
-      smtpPassword?: string;
-      aiProvider?: string;
-      aiModel?: string;
-      aiApiKey?: string;
-      assistantInstructions?: string;
-      operationalInstructions?: string;
-      hrInstructions?: string;
-      integrationNotes?: string;
-    }
+    @Body() body: UpdateSettingsDto
   ) {
     return this.settingsService.updateSettings(authUser.tenantId, authUser.userId, body);
   }
@@ -74,18 +52,11 @@ export class SettingsController {
 
   @Post("documents/upload")
   @Roles("manager", "rrhh", "admin")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(FileInterceptor("file", documentUploadOptions))
   uploadDocument(
     @CurrentUser() authUser: AuthUser,
     @UploadedFile() file: Express.Multer.File,
-    @Body()
-    body: {
-      area: string;
-      category: string;
-      title: string;
-      description?: string;
-      useForAi?: string | boolean;
-    }
+    @Body() body: UploadDocumentDto
   ) {
     if (!file) {
       throw new BadRequestException("Debes adjuntar un archivo");

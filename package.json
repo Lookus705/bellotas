@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "docker compose up --build",
     "down": "docker compose down -v",
+    "build": "pnpm -r build",
+    "verify": "pnpm api:prisma:generate && pnpm -r build",
     "api:prisma:generate": "pnpm --filter @bellotas/api prisma:generate",
     "api:prisma:migrate": "pnpm --filter @bellotas/api prisma:migrate",
     "seed": "pnpm --filter @bellotas/api seed"

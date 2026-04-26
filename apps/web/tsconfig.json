@@ -6,9 +6,24 @@
     "noEmit": true,
     "incremental": true,
     "isolatedModules": true,
-    "lib": ["dom", "dom.iterable", "es2022"],
-    "plugins": [{ "name": "next" }]
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "es2022"
+    ],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "resolveJsonModule": true
   },
-  "include": ["src/**/*.ts", "src/**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    ".next/types/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

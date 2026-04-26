@@ -15,6 +15,8 @@ import { RolesGuard } from "../../common/roles.guard";
 import { Roles } from "../../common/roles.decorator";
 import { CurrentUser } from "../../common/current-user.decorator";
 import { AuthUser } from "../../common/auth.types";
+import { payrollUploadOptions } from "../../common/upload-limits";
+import { PayrollDispatchDto, UploadPayrollDto } from "./payroll.dto";
 
 @Controller("payroll")
 @UseGuards(AuthGuard, RolesGuard)
@@ -23,11 +25,11 @@ export class PayrollController {
 
   @Post("upload")
   @Roles("rrhh", "admin")
-  @UseInterceptors(FileInterceptor("file"))
+  @UseInterceptors(FileInterceptor("file", payrollUploadOptions))
   uploadPayroll(
     @CurrentUser() authUser: AuthUser,
     @UploadedFile() file: Express.Multer.File,
-    @Body() body: { employeeCode: string; periodYear: string; periodMonth: string }
+    @Body() body: UploadPayrollDto
   ) {
     if (!file) {
       throw new BadRequestException("Debes adjuntar un archivo de nomina");
@@ -60,7 +62,7 @@ export class PayrollController {
   @Roles("rrhh", "admin")
   dispatchPayrolls(
     @CurrentUser() authUser: AuthUser,
-    @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
+    @Body() body: PayrollDispatchDto
   ) {
     const periodYear = this.parsePeriodYear(body.periodYear);
     const periodMonth = this.parsePeriodMonth(body.periodMonth);
@@ -78,7 +80,7 @@ export class PayrollController {
   @Roles("rrhh", "admin")
   validateDispatchPayrolls(
     @CurrentUser() authUser: AuthUser,
-    @Body() body: { periodYear: string; periodMonth: string; payrollIds?: string[] }
+    @Body() body: PayrollDispatchDto
   ) {
     const periodYear = this.parsePeriodYear(body.periodYear);
     const periodMonth = this.parsePeriodMonth(body.periodMonth);
