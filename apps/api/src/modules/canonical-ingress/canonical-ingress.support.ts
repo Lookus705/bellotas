@@ -118,7 +118,9 @@ export class CanonicalIngressSupportService {
     label?: string;
     metadata?: Prisma.InputJsonValue;
   }) {
-    const existing = await this.prisma.channelEndpoint.findUnique({
+    const lastSeenAt = new Date();
+
+    return this.prisma.channelEndpoint.upsert({
       where: {
         tenantId_channel_provider_endpointExternalId: {
           tenantId: params.tenantId,
@@ -126,26 +128,15 @@ export class CanonicalIngressSupportService {
           provider: params.provider,
           endpointExternalId: params.endpointExternalId
         }
-      }
-    });
-
-    if (existing) {
-      return this.prisma.channelEndpoint.update({
-        where: { id: existing.id },
-        data: {
-          userId: params.userId,
-          revokedAt: null,
-          lastSeenAt: new Date(),
-          label: params.label ?? existing.label,
-          ...(params.metadata !== undefined
-            ? { metadataJson: params.metadata }
-            : {})
-        }
-      });
-    }
-
-    return this.prisma.channelEndpoint.create({
-      data: {
+      },
+      update: {
+        userId: params.userId,
+        revokedAt: null,
+        lastSeenAt,
+        ...(params.label !== undefined ? { label: params.label } : {}),
+        ...(params.metadata !== undefined ? { metadataJson: params.metadata } : {})
+      },
+      create: {
         tenantId: params.tenantId,
         userId: params.userId,
         channel: params.channel,
@@ -153,7 +144,7 @@ export class CanonicalIngressSupportService {
         endpointExternalId: params.endpointExternalId,
         label: params.label,
         metadataJson: params.metadata,
-        lastSeenAt: new Date()
+        lastSeenAt
       }
     });
   }

@@ -427,6 +427,14 @@ export class AiService {
     if (normalized.includes("nomina")) {
       return { intent: "hr_payroll_query", confidence: 0.95, entities: {} };
     }
+    if (
+      /((voy|v[oó]y|me voy|salgo|me llevo|llevo|voy a llevar)\s+(a\s+)?(llevar\s+)?(el\s+)?camion\b)/.test(
+        normalized
+      ) ||
+      /(camion\s+[a-z0-9-]+)/.test(normalized)
+    ) {
+      return { intent: "driver_route_start", confidence: 0.82, entities: this.extractCommonEntities(text) };
+    }
     if (normalized.includes("iniciar ruta") || normalized.includes("salgo")) {
       return { intent: "driver_route_start", confidence: 0.85, entities: this.extractCommonEntities(text) };
     }

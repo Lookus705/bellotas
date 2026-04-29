@@ -291,8 +291,9 @@ export class EmployeeEventsService {
           params.tenantId,
           user.id
         );
+        const pendingClassification = this.tryResolvePendingConversation(session.contextJson, text);
         const classified =
-          this.tryResolvePendingConversation(session.contextJson, text) ??
+          pendingClassification ??
           (await this.aiService.classifyMessage(params.tenantId, text, {
             roles: user.roles.map((role) => role.role),
             assignedWorkSummary
