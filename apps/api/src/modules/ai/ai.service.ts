@@ -162,14 +162,15 @@ export class AiService {
     }
 
     const tenantConfig = await this.getTenantAiConfig(tenantId);
+    const rulesSuggestion = this.proposeOperationalMemoryWithRules(normalized);
     if (tenantConfig.provider === "openai" && tenantConfig.apiKey) {
       const llmSuggestion = await this.proposeOperationalMemoryWithOpenAi(normalized, tenantConfig);
       if (llmSuggestion) {
-        return llmSuggestion;
+        return llmSuggestion.confidence >= rulesSuggestion.confidence ? llmSuggestion : rulesSuggestion;
       }
     }
 
-    return this.proposeOperationalMemoryWithRules(normalized);
+    return rulesSuggestion;
   }
 
   private async classifyMessageWithOpenAi(
