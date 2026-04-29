@@ -291,10 +291,12 @@ export class EmployeeEventsService {
           params.tenantId,
           user.id
         );
-        const classified = await this.aiService.classifyMessage(params.tenantId, text, {
-          roles: user.roles.map((role) => role.role),
-          assignedWorkSummary
-        });
+        const classified =
+          this.tryResolvePendingConversation(session.contextJson, text) ??
+          (await this.aiService.classifyMessage(params.tenantId, text, {
+            roles: user.roles.map((role) => role.role),
+            assignedWorkSummary
+          }));
 
         const inboundMessage = await this.conversationService.saveInboundMessage({
           ...commonMessageContext,
@@ -314,6 +316,17 @@ export class EmployeeEventsService {
           sourceMessageId: inboundMessage.id,
           classified
         });
+
+        if (!resolution.completed && resolution.missingFields.length > 0) {
+          await this.conversationService.setPendingIntent({
+            sessionId: session.id,
+            intent: resolution.intent,
+            entities: resolution.entities,
+            missingFields: resolution.missingFields
+          });
+        } else {
+          await this.conversationService.clearSessionContext(session.id);
+        }
 
         await this.conversationService.saveOutboundMessage({
           ...commonMessageContext,
@@ -814,6 +827,125 @@ export class EmployeeEventsService {
     };
 
     return (requirements[intent] ?? []).filter((field) => entities[field] === undefined);
+  }
+
+  private tryResolvePendingConversation(context: unknown, text: string) {
+    if (!context || typeof context !== "object" || Array.isArray(context)) {
+      return null;
+    }
+
+    const pending = context as {
+      pendingIntent?: string;
+      pendingEntities?: Record<string, unknown>;
+      missingFields?: string[];
+      pendingAt?: string;
+    };
+
+    if (!pending.pendingIntent) {
+      return null;
+    }
+
+    const pendingAt = pending.pendingAt ? Date.parse(pending.pendingAt) : Number.NaN;
+    if (Number.isFinite(pendingAt) && Date.now() - pendingAt > 30 * 60 * 1000) {
+      return null;
+    }
+
+    const baseEntities = this.normalizePendingEntities(pending.pendingEntities);
+    const mergedEntities = this.mergePendingEntities(
+      pending.pendingIntent,
+      baseEntities,
+      text,
+      pending.missingFields ?? []
+    );
+
+    return {
+      intent: pending.pendingIntent,
+      confidence: 0.98,
+      entities: mergedEntities
+    };
+  }
+
+  private normalizePendingEntities(entities?: Record<string, unknown>) {
+    const normalized: Record<string, string | number> = {};
+    if (!entities) {
+      return normalized;
+    }
+
+    for (const [key, value] of Object.entries(entities)) {
+      if (typeof value === "string" && value.trim()) {
+        normalized[key] = value.trim();
+      } else if (typeof value === "number" && Number.isFinite(value)) {
+        normalized[key] = value;
+      }
+    }
+
+    return normalized;
+  }
+
+  private mergePendingEntities(
+    intent: string,
+    existing: Record<string, string | number>,
+    text: string,
+    missingFields: string[]
+  ) {
+    const merged = {
+      ...existing,
+      ...this.extractContinuationEntities(text)
+    };
+
+    const trimmed = text.trim();
+
+    if (missingFields.includes("odometer") && /^\d{2,7}$/.test(trimmed)) {
+      merged.odometer = Number(trimmed);
+    }
+
+    if (
+      missingFields.includes("vehicleLabel") &&
+      !merged.vehicleLabel &&
+      /^[A-Za-z0-9-]{2,20}$/.test(trimmed)
+    ) {
+      merged.vehicleLabel = trimmed;
+    }
+
+    if (
+      missingFields.includes("orderRef") &&
+      !merged.orderRef &&
+      /^[A-Za-z0-9-]{2,30}$/.test(trimmed)
+    ) {
+      merged.orderRef = trimmed;
+    }
+
+    if (
+      intent === "driver_route_end" &&
+      missingFields.length === 1 &&
+      missingFields[0] === "odometer" &&
+      /^\d{2,7}$/.test(trimmed)
+    ) {
+      merged.odometer = Number(trimmed);
+    }
+
+    return merged;
+  }
+
+  private extractContinuationEntities(text: string) {
+    const entities: Record<string, string | number> = {};
+    const odometer = text.match(/(\d{2,7})\s?(km|kms|kilometros|millas)?/i);
+    const vehicle = text.match(/camion\s+([A-Za-z0-9-]+)/i);
+    const boxes = text.match(/(\d+)\s+cajas/i);
+    const weight = text.match(/(\d+(?:\.\d+)?)\s?(kg|kilos)/i);
+    const orderRef = text.match(/pedido\s+([A-Za-z0-9-]+)/i);
+    const routeRef = text.match(/ruta\s+([A-Za-z0-9-]+)/i);
+
+    if (vehicle) entities.vehicleLabel = vehicle[1];
+    if (boxes) entities.boxCount = Number(boxes[1]);
+    if (weight) entities.weightKg = Number(weight[1]);
+    if (orderRef) entities.orderRef = orderRef[1];
+    if (routeRef) entities.routeRef = routeRef[1];
+    if (odometer && /(km|kms|kilometros|millas)/i.test(odometer[0])) {
+      entities.odometer = Number(odometer[1]);
+    }
+
+    return entities;
   }
 
   private detectIncidentType(text: string) {

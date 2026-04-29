@@ -94,10 +94,33 @@ export class ConversationService {
     });
   }
 
+  async setPendingIntent(params: {
+    sessionId: string;
+    intent: string;
+    entities: Record<string, unknown>;
+    missingFields: string[];
+  }) {
+    return this.prisma.conversationSession.update({
+      where: { id: params.sessionId },
+      data: {
+        activeFlow: params.intent,
+        currentStep: params.missingFields[0] ?? null,
+        contextJson: {
+          pendingIntent: params.intent,
+          pendingEntities: params.entities,
+          missingFields: params.missingFields,
+          pendingAt: new Date().toISOString()
+        } as Prisma.InputJsonValue
+      }
+    });
+  }
+
   async clearSessionContext(sessionId: string) {
     return this.prisma.conversationSession.update({
       where: { id: sessionId },
       data: {
+        activeFlow: null,
+        currentStep: null,
         contextJson: {}
       }
     });
