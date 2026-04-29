@@ -725,6 +725,106 @@ export class WorkItemsService {
     });
   }
 
+  async captureEmployeeMemoryFromConversation(params: {
+    tenantId: string;
+    userId: string;
+    content: string;
+    sourceMessageId?: string;
+  }) {
+    const suggestion = await this.aiService.proposeOperationalMemory(params.tenantId, params.content);
+    if (!suggestion || suggestion.confidence < 0.62) {
+      return null;
+    }
+
+    const items = await this.getAssignedWorkContextForUser(params.tenantId, params.userId);
+    if (items.length === 0) {
+      return null;
+    }
+
+    const workItem = items[0];
+    if (items.length > 1) {
+      const sameAccount = items.every((item) => item.accountId && item.accountId === workItem.accountId);
+      const samePerson = items.every(
+        (item) => item.contactPersonId && item.contactPersonId === workItem.contactPersonId
+      );
+
+      if (
+        (suggestion.target === "account" && !sameAccount) ||
+        (suggestion.target === "person" && !samePerson) ||
+        suggestion.target === "work_item"
+      ) {
+        return {
+          ambiguous: true,
+          items: items.slice(0, 3).map((item) => ({
+            id: item.id,
+            title: item.title,
+            workType: item.workType
+          }))
+        };
+      }
+    }
+
+    const targetAccountId =
+      suggestion.target === "account" || suggestion.target === "person"
+        ? workItem.accountId ?? undefined
+        : undefined;
+    const targetPersonId = suggestion.target === "person" ? workItem.contactPersonId ?? undefined : undefined;
+
+    const note = await this.prisma.operationalNote.create({
+      data: {
+        tenantId: params.tenantId,
+        type: suggestion.suggestedType,
+        content: params.content.trim(),
+        summary: suggestion.summary,
+        workItemId: workItem.id,
+        accountId: targetAccountId,
+        contactPersonId: targetPersonId,
+        sourceMessageId: params.sourceMessageId,
+        proposedByAi: true,
+        confidence: suggestion.confidence,
+        metadataJson: {
+          suggestedType: suggestion.suggestedType,
+          suggestedTarget: suggestion.target,
+          source: "employee_conversation"
+        }
+      }
+    });
+
+    await this.prisma.workItemEvent.create({
+      data: {
+        tenantId: params.tenantId,
+        workItemId: workItem.id,
+        actorUserId: params.userId,
+        eventType: WorkItemEventType.note_added,
+        details: "Nota operativa capturada desde conversacion",
+        metaJson: this.asJsonInput({
+          noteId: note.id,
+          type: suggestion.suggestedType,
+          target: suggestion.target
+        })
+      }
+    });
+
+    await this.auditService.log({
+      tenantId: params.tenantId,
+      actorUserId: params.userId,
+      action: "work_item.note_captured_from_conversation",
+      targetType: "work_item",
+      targetId: workItem.id,
+      meta: {
+        noteId: note.id,
+        type: suggestion.suggestedType,
+        target: suggestion.target
+      }
+    });
+
+    return {
+      note,
+      workItem,
+      suggestion
+    };
+  }
+
   async acknowledgeAssignedWorkItem(params: Omit<WorkItemSyncPayload, "nextStatus" | "eventType">) {
     return this.syncOperationalProgress({
       ...params,

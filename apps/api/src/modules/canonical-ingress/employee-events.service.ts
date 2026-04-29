@@ -287,16 +287,16 @@ export class EmployeeEventsService {
           return reminderOutcome;
         }
 
-        const classified = await this.aiService.classifyMessage(params.tenantId, text);
-        const resolution = await this.resolveNaturalIntent({
-          tenantId: params.tenantId,
-          userId: user.id,
-          sessionId: session.id,
-          text,
-          classified
+        const assignedWorkSummary = await this.workItemsService.buildAssignedWorkSummary(
+          params.tenantId,
+          user.id
+        );
+        const classified = await this.aiService.classifyMessage(params.tenantId, text, {
+          roles: user.roles.map((role) => role.role),
+          assignedWorkSummary
         });
 
-        await this.conversationService.saveInboundMessage({
+        const inboundMessage = await this.conversationService.saveInboundMessage({
           ...commonMessageContext,
           messageType: params.body.eventType === "conversation.audio" ? "audio" : "text",
           rawText: params.body.eventType === "conversation.audio" ? undefined : text,
@@ -304,6 +304,15 @@ export class EmployeeEventsService {
           intent: classified.intent,
           confidence: classified.confidence,
           entities: classified.entities
+        });
+
+        const resolution = await this.resolveNaturalIntent({
+          tenantId: params.tenantId,
+          userId: user.id,
+          sessionId: session.id,
+          text,
+          sourceMessageId: inboundMessage.id,
+          classified
         });
 
         await this.conversationService.saveOutboundMessage({
@@ -321,6 +330,7 @@ export class EmployeeEventsService {
     userId: string;
     sessionId: string;
     text: string;
+    sourceMessageId?: string;
     classified: {
       intent: string;
       confidence: number;
@@ -646,6 +656,58 @@ export class EmployeeEventsService {
         };
       }
 
+      case "operational_memory_note": {
+        const memoryCapture = await this.workItemsService.captureEmployeeMemoryFromConversation({
+          tenantId: params.tenantId,
+          userId: params.userId,
+          content: params.text,
+          sourceMessageId: params.sourceMessageId
+        });
+
+        if (!memoryCapture) {
+          return {
+            completed: false,
+            intent: params.classified.intent,
+            confidence: params.classified.confidence,
+            entities: params.classified.entities,
+            missingFields: [],
+            appliedAction: null,
+            assistantMessage:
+              "Entendi que me estas dando una nota operativa, pero ahora mismo no puedo asociarla a un trabajo activo."
+          };
+        }
+
+        if ("ambiguous" in memoryCapture) {
+          const ambiguousItems = memoryCapture.items ?? [];
+          return {
+            completed: false,
+            intent: params.classified.intent,
+            confidence: params.classified.confidence,
+            entities: params.classified.entities,
+            missingFields: [],
+            appliedAction: null,
+            assistantMessage: `Tienes varios trabajos activos. No guardo la nota todavia: ${ambiguousItems
+              .slice(0, 3)
+              .map((item, index) => `${index + 1}. ${item.title}`)
+              .join(" ; ")}.`
+          };
+        }
+
+        return {
+          completed: true,
+          intent: params.classified.intent,
+          confidence: params.classified.confidence,
+          entities: params.classified.entities,
+          missingFields: [],
+          appliedAction: {
+            type: "operational_memory_captured",
+            noteId: memoryCapture.note.id,
+            workItemId: memoryCapture.workItem.id
+          },
+          assistantMessage: this.buildOperationalMemoryCaptureMessage(memoryCapture)
+        };
+      }
+
       case "greeting":
         return {
           completed: true,
@@ -669,6 +731,30 @@ export class EmployeeEventsService {
         };
 
       default:
+        {
+          const memoryCapture = await this.workItemsService.captureEmployeeMemoryFromConversation({
+            tenantId: params.tenantId,
+            userId: params.userId,
+            content: params.text,
+            sourceMessageId: params.sourceMessageId
+          });
+
+          if (memoryCapture && !("ambiguous" in memoryCapture)) {
+            return {
+              completed: true,
+              intent: "operational_memory_note",
+              confidence: Math.max(params.classified.confidence, memoryCapture.suggestion.confidence),
+              entities: params.classified.entities,
+              missingFields: [],
+              appliedAction: {
+                type: "operational_memory_captured",
+                noteId: memoryCapture.note.id,
+                workItemId: memoryCapture.workItem.id
+              },
+              assistantMessage: this.buildOperationalMemoryCaptureMessage(memoryCapture)
+            };
+          }
+        }
         return {
           completed: false,
           intent: params.classified.intent,
@@ -738,6 +824,27 @@ export class EmployeeEventsService {
     if (normalized.includes("frio")) return "cold_chain_issue";
     if (normalized.includes("rechazo")) return "major_rejection";
     return "general";
+  }
+
+  private buildOperationalMemoryCaptureMessage(memoryCapture: {
+    workItem: {
+      title: string;
+      account?: { name: string } | null;
+      contactPerson?: { fullName: string } | null;
+    };
+    suggestion: {
+      target: "work_item" | "account" | "person";
+    };
+  }) {
+    if (memoryCapture.suggestion.target === "account" && memoryCapture.workItem.account?.name) {
+      return `Anotado. Lo guardo como regla operativa de ${memoryCapture.workItem.account.name}.`;
+    }
+
+    if (memoryCapture.suggestion.target === "person" && memoryCapture.workItem.contactPerson?.fullName) {
+      return `Anotado. Lo guardo como preferencia de ${memoryCapture.workItem.contactPerson.fullName}.`;
+    }
+
+    return `Anotado. Lo guardo en tu trabajo actual: ${memoryCapture.workItem.title}.`;
   }
 
   private parseDueAt(when?: string | null) {

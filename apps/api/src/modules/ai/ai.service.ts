@@ -1,9 +1,10 @@
 import { Injectable } from "@nestjs/common";
-import { OperationalNoteType } from "@prisma/client";
+import { OperationalNoteType, UserRole } from "@prisma/client";
 import { PrismaService } from "../../common/prisma.service";
 
 type Intent =
   | "greeting"
+  | "operational_memory_note"
   | "auth_login"
   | "assigned_work_query"
   | "assigned_work_detail_query"
@@ -67,14 +68,21 @@ export class AiService {
     return data.text ?? "audio recibido pendiente de transcripcion real";
   }
 
-  async classifyMessage(tenantId: string, text: string): Promise<{
+  async classifyMessage(
+    tenantId: string,
+    text: string,
+    context?: {
+      roles?: UserRole[];
+      assignedWorkSummary?: string;
+    }
+  ): Promise<{
     intent: Intent;
     confidence: number;
     entities: Record<string, string | number>;
   }> {
     const tenantConfig = await this.getTenantAiConfig(tenantId);
     if (tenantConfig.provider === "openai" && tenantConfig.apiKey) {
-      const llmResult = await this.classifyMessageWithOpenAi(text, tenantConfig);
+      const llmResult = await this.classifyMessageWithOpenAi(text, tenantConfig, context);
       if (llmResult) {
         return llmResult;
       }
@@ -177,6 +185,10 @@ export class AiService {
       assistantInstructions?: string | null;
       operationalInstructions?: string | null;
       hrInstructions?: string | null;
+    },
+    context?: {
+      roles?: UserRole[];
+      assignedWorkSummary?: string;
     }
   ): Promise<{
     intent: Intent;
@@ -205,12 +217,16 @@ export class AiService {
                 "Clasifica mensajes operativos internos en espanol.",
                 `Empresa: ${tenantConfig.companyName ?? "Sin nombre"}.`,
                 `Perfil de negocio: ${tenantConfig.businessProfile ?? "logistics"}.`,
+                context?.roles?.length ? `Roles del usuario: ${context.roles.join(", ")}.` : "",
+                context?.assignedWorkSummary ? `Trabajo actual: ${context.assignedWorkSummary}` : "",
+                this.buildRoleConversationGuidance(context?.roles ?? []),
                 tenantConfig.assistantInstructions ?? "",
                 tenantConfig.operationalInstructions ?? "",
                 tenantConfig.hrInstructions ?? "",
                 documentContext ? `Contexto documental autorizado: ${documentContext}` : "",
                 "Devuelve JSON con: intent, confidence, entities.",
                 "Si el usuario solo saluda, usa intent greeting.",
+                "Si el usuario aporta una regla operativa, preferencia, instruccion de cliente, condicion de entrega, horario, nota de destino o conocimiento reutilizable, usa intent operational_memory_note.",
                 "Intent válidos: auth_login, assigned_work_query, assigned_work_detail_query, assigned_work_acknowledge, assigned_work_complete, driver_route_start, driver_route_end, driver_invoice_report, driver_incident, warehouse_picking, warehouse_loading, warehouse_incident, hr_payroll_query, help, unknown.",
                 "Entities válidas: odometer, vehicleLabel, invoices, boxCount, weightKg, orderRef, routeRef."
               ]
@@ -341,6 +357,13 @@ export class AiService {
 
     if (/^(hola|hello|hi|buenos dias|buen dia|buenas tardes|buenas noches|saludos|ey|hey)\b/.test(normalized.trim())) {
       return { intent: "greeting", confidence: 0.96, entities: {} };
+    }
+    if (
+      /(meli[aá]|cliente|cuenta|hotel|descansan|horario|entrega|puerta|recepci[oó]n|compras|peso real|peso por etiqueta|etiqueta|pulpo|prefiere|no le gusta|le gusta|siempre pide|se quedan con)/.test(
+        normalized
+      )
+    ) {
+      return { intent: "operational_memory_note", confidence: 0.84, entities: {} };
     }
     if (normalized.includes("ayuda")) {
       return { intent: "help", confidence: 0.92, entities: {} };
@@ -537,6 +560,7 @@ export class AiService {
   private normalizeIntent(intent?: string): Intent {
     const allowed: Intent[] = [
       "greeting",
+      "operational_memory_note",
       "auth_login",
       "assigned_work_query",
       "assigned_work_detail_query",
@@ -664,5 +688,37 @@ export class AiService {
     if (routeRef) entities.routeRef = routeRef[1];
 
     return entities;
+  }
+
+  private buildRoleConversationGuidance(roles: UserRole[]) {
+    const activeRoles = roles.length > 0 ? roles : [UserRole.chofer];
+    const guidance: string[] = [];
+
+    if (activeRoles.includes(UserRole.chofer)) {
+      guidance.push(
+        "Para chofer: iniciar ruta requiere camion y kilometraje. Cerrar ruta requiere kilometraje final. Facturas se reportan con numeros. Incidencias requieren descripcion. Notas sobre clientes, destinos, pesos, horarios o condiciones de entrega deben clasificarse como operational_memory_note."
+      );
+    }
+    if (activeRoles.includes(UserRole.almacenista)) {
+      guidance.push(
+        "Para almacenista: picking requiere pedido. Carga requiere camion y puede incluir cajas o peso. Observaciones reutilizables sobre pedidos o clientes deben clasificarse como operational_memory_note."
+      );
+    }
+    if (activeRoles.includes(UserRole.rrhh)) {
+      guidance.push(
+        "Para rrhh: nomina y documentos son prioridad. Si el mensaje es una regla interna reusable, usa operational_memory_note."
+      );
+    }
+    if (
+      activeRoles.includes(UserRole.supervisor) ||
+      activeRoles.includes(UserRole.manager) ||
+      activeRoles.includes(UserRole.admin)
+    ) {
+      guidance.push(
+        "Para supervisor, manager o admin: puede consultar trabajo, registrar incidencias y aportar reglas operativas reutilizables. Si el mensaje parece conocimiento util futuro, usa operational_memory_note."
+      );
+    }
+
+    return guidance.join(" ");
   }
 }
