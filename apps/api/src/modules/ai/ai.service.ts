@@ -80,15 +80,26 @@ export class AiService {
     confidence: number;
     entities: Record<string, string | number>;
   }> {
+    const ruleResult = this.classifyMessageWithRules(text);
+    if (this.isDeterministicIntent(ruleResult.intent)) {
+      return ruleResult;
+    }
+
     const tenantConfig = await this.getTenantAiConfig(tenantId);
     if (tenantConfig.provider === "openai" && tenantConfig.apiKey) {
       const llmResult = await this.classifyMessageWithOpenAi(text, tenantConfig, context);
       if (llmResult) {
+        if (this.isDeterministicIntent(llmResult.intent)) {
+          return llmResult;
+        }
+        if (ruleResult.intent !== "unknown" && llmResult.intent === "unknown") {
+          return ruleResult;
+        }
         return llmResult;
       }
     }
 
-    return this.classifyMessageWithRules(text);
+    return ruleResult;
   }
 
   classifySeverity(text: string): IncidentSeverity {
@@ -729,5 +740,9 @@ export class AiService {
     }
 
     return guidance.join(" ");
+  }
+
+  private isDeterministicIntent(intent: Intent) {
+    return intent !== "unknown" && intent !== "operational_memory_note";
   }
 }
