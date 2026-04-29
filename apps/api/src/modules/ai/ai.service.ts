@@ -3,6 +3,7 @@ import { OperationalNoteType } from "@prisma/client";
 import { PrismaService } from "../../common/prisma.service";
 
 type Intent =
+  | "greeting"
   | "auth_login"
   | "assigned_work_query"
   | "assigned_work_detail_query"
@@ -127,6 +128,22 @@ export class AiService {
     return `${companyPrefix}puedes usar: INICIAR RUTA, CERRAR RUTA, FACTURAS, PICKING, CARGA, INCIDENCIA, TRABAJO ASIGNADO o NOMINA.${documentHint}`;
   }
 
+  async buildGreetingMessage(tenantId: string) {
+    const settings = await this.getTenantSettings(tenantId);
+    const companyPrefix = settings?.companyName ? `${settings.companyName}: ` : "";
+    const profile = settings?.businessProfile ?? "logistics";
+
+    if (profile === "beauty_salon") {
+      return `${companyPrefix}hola. Dime que necesitas. Puedes consultar tu agenda, tu trabajo asignado, pedir ayuda o registrar una incidencia.`;
+    }
+
+    if (profile === "clinic") {
+      return `${companyPrefix}hola. Dime que necesitas. Puedes consultar tu trabajo asignado, pedir ayuda o registrar una incidencia.`;
+    }
+
+    return `${companyPrefix}hola. Dime que necesitas. Puedes consultar tu trabajo asignado, consultar nomina o registrar una operacion.`;
+  }
+
   async proposeOperationalMemory(
     tenantId: string,
     text: string
@@ -193,6 +210,7 @@ export class AiService {
                 tenantConfig.hrInstructions ?? "",
                 documentContext ? `Contexto documental autorizado: ${documentContext}` : "",
                 "Devuelve JSON con: intent, confidence, entities.",
+                "Si el usuario solo saluda, usa intent greeting.",
                 "Intent válidos: auth_login, assigned_work_query, assigned_work_detail_query, assigned_work_acknowledge, assigned_work_complete, driver_route_start, driver_route_end, driver_invoice_report, driver_incident, warehouse_picking, warehouse_loading, warehouse_incident, hr_payroll_query, help, unknown.",
                 "Entities válidas: odometer, vehicleLabel, invoices, boxCount, weightKg, orderRef, routeRef."
               ]
@@ -321,6 +339,9 @@ export class AiService {
   } {
     const normalized = text.toLowerCase();
 
+    if (/^(hola|hello|hi|buenos dias|buen dia|buenas tardes|buenas noches|saludos|ey|hey)\b/.test(normalized.trim())) {
+      return { intent: "greeting", confidence: 0.96, entities: {} };
+    }
     if (normalized.includes("ayuda")) {
       return { intent: "help", confidence: 0.92, entities: {} };
     }
@@ -515,6 +536,7 @@ export class AiService {
 
   private normalizeIntent(intent?: string): Intent {
     const allowed: Intent[] = [
+      "greeting",
       "auth_login",
       "assigned_work_query",
       "assigned_work_detail_query",

@@ -646,6 +646,17 @@ export class EmployeeEventsService {
         };
       }
 
+      case "greeting":
+        return {
+          completed: true,
+          intent: params.classified.intent,
+          confidence: params.classified.confidence,
+          entities: params.classified.entities,
+          missingFields: [],
+          appliedAction: null,
+          assistantMessage: await this.aiService.buildGreetingMessage(params.tenantId)
+        };
+
       case "help":
         return {
           completed: true,
